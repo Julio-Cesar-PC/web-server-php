@@ -2,16 +2,18 @@
 set_time_limit(0);
 
 $address = '127.0.0.1';
-$port = 8000;
+$port = $argv[1];
 
 $sock = socket_create(AF_INET, SOCK_STREAM, 0);
-socket_bind($sock, $address, $port) or die('Could not bind to address');
+socket_bind($sock, $address, $port) or die('Erro de endereço!!!');
 
-echo "\n Listening On port $port For Connection... \n\n";
+echo "\n Server iniciado na porta " . $port . " | " . $address . ":" . $port . " \n\n";
+$cache = [];
+$cacheTime = $argv[2];
+echo 'cachetime: ' . $cacheTime . "\n\n";
 
 while(1)
 {
-    clearstatcache();
     socket_listen($sock);
     $client = socket_accept($sock);
 
@@ -22,35 +24,52 @@ while(1)
 
     $fetchArray = array();
     $fetchArray = explode(" ", $incoming[0]);
-
-    echo 'incoming';
-    echo '<pre>'; print_r($incoming); echo '</pre>';
-    echo 'fetcharray';
-    echo '<pre>'; print_r($fetchArray); echo '</pre>';
-
-    $file = $fetchArray[1];
-    if($file == "/"){
-        $file = "index.html"; 
-
+    
+    $input = $fetchArray[1];
+    
+    if($input == "/"){
+        $file = "index.html";
     } else {
-
         $filearray = array();
-        $filearray = explode("/", $file);
+        $filearray = explode("/", $input);
         $file = $filearray[1];
     }
+    
+    if (file_exists($file) && filemtime($file) > $cache[$file]['lastTimeRequest']) { 
+        unset($cache[$file]);
+    }
+     
+    if (isset($cache[$file]) && $cache[$file]['timeToExpire'] > time()) {
+        $output = "";
+        $Header = "HTTP/1.1 200 OK \r\n" .
+        "Date: " . date("m-d-Y h:i:s a", strtotime("now")) . "\r\n\r\n";
+        
+        $cache[$file]['lastTimeRequest'] = time();
+        
+        $output = $Header . $cache[$file]['content'];
+        echo $fetchArray[0] . " Request do cache " . $file . "\n";
+        // echo 'lastTime' . $cache[$file]['lastTimeRequest'] . "\n";
+        // echo 'timeToExpire' . $cache[$file]['timeToExpire'] . "\n";
+    } else {
+        unset($cache[$file]);
+        
+        $output = "";
+        $Header = "HTTP/1.1 200 OK \r\n" .
+        "Date: " . date("m-d-Y h:i:s a", strtotime("now")) . "\r\n\r\n";
+        
+        $timeToExpire = time() + $cacheTime;
+        $Content = file_get_contents($file);
+        $cache[$file] = [
+            'content' => $Content,
+            'lastTimeRequest' => time(),
+            'timeToExpire' => $timeToExpire
+        ];
 
-echo $fetchArray[0] . " Request " . $file . "\n"; 
-
-$output = "";
-$Header = "HTTP/1.1 200 OK \r\n" .
-"content-Type: text/html \r\n" .
-"cache-control: private, max-age=10 \r\n" .
-"ETag: teste \r\n" .
-"Keep-Alive: timeout=5, max=99 \n\r" .
-"date: " . date("Y-m-d h:i:sa", strtotime("now")) . "\r\n\r\n";
-
-$Content = file_get_contents($file);
-$output = $Header . $Content;
+        $output = $Header . $Content;
+        echo $fetchArray[0] . " Request da memoria " . $file . "\n";
+        // echo 'lastTime' . $cache[$file]['lastTimeRequest'] . "\n";
+        // echo 'timeToExpire' . $cache[$file]['timeToExpire'] . "\n";
+    }
 
     socket_write($client,$output,strlen($output));
     socket_close($client);
